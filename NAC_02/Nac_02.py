@@ -1,38 +1,67 @@
-# -- coding: utf-8 --
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-from ast import match_case
 import cv2
-from matplotlib import pyplot as plt
+import numpy as np
 
-cap = cv2.VideoCapture("q1.mp4")
+minKPMatch=10
 
-while True:
-    ret, frame = cap.read()
+sift=cv2.SIFT_create()
 
-    if not ret:
-        break
+refImg=cv2.imread("aOuros.png",0)
 
-    #Meu RM81942 = as de ouros
+refKP,refDesc = sift.detectAndCompute(refImg,None)
 
-    template = cv2.imread("aOuros.png", 0)
-    imgGray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+vc=cv2.VideoCapture("q1.mp4")
 
-    res = cv2.matchTemplate(imgGray, template, cv2.TM_SQDIFF)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+if vc.isOpened():
+    rval, frame = vc.read()
+else:
+    rval = False
 
-    larg, alt = template.shape[::-1]
-    bottom_right = (min_loc[0] + larg, min_loc[1] + alt)
-    cv2.rectangle(frame, min_loc, bottom_right, (0, 255, 0), 3)
-    cv2.putText(frame, 'CARTA DETECTADA', (50, 50), cv2.FONT_HERSHEY_SIMPLEX,1,(200,50,0),2,cv2.LINE_AA)
+while rval:
 
-    # Exibe resultado
-    cv2.imshow("Feed", frame)
+    frameImg=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
 
-    # Wait for key 'ESC' to quit
-    key = cv2.waitKey(1) & 0xFF
+    frameKP, frameDesc = sift.detectAndCompute(frameImg,None)
+
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(refDesc,frameDesc, k=2) 
+
+    goodMatch=[]
+    for m,n in matches:
+        if(m.distance < 0.75*n.distance):
+            goodMatch.append(m)
+       
+    if(len(goodMatch)> minKPMatch):
+
+        tp=[]
+        qp=[]
+        for m in goodMatch:
+            qp.append(refKP[m.queryIdx].pt) 
+            tp.append(frameKP[m.trainIdx].pt)
+        tp,qp=np.float32((tp,qp))
+
+        H,status=cv2.findHomography(qp,tp,cv2.RANSAC,3.0)
+        
+        h,w=refImg.shape
+
+        refBorda=np.float32([[[0,0],[0,h-1],[w-1,h-1],[w-1,0]]])
+        
+        frameBorda=cv2.perspectiveTransform(refBorda,H)
+        
+        cv2.polylines(frame,[np.int32(frameBorda)],True,(0,255,0),5)
+        cv2.putText(frame, 'CARTA DETECTADA', (50, 50), cv2.FONT_HERSHEY_SIMPLEX,1,(200,50,0),2,cv2.LINE_AA)
+    else:
+        print ("Não encontrado bom match - %d/%d"%(len(goodMatch),minKPMatch))
+
+    cv2.imshow("resultado", frame)
+    
+    rval, frame = vc.read()
+
+    key = cv2.waitKey(10)
     if key == 27:
         break
 
-# That's how you exit
-cap.release()
+vc.release()
 cv2.destroyAllWindows()
